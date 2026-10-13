@@ -1,79 +1,95 @@
 # Logitech M720 Button Configuration for Linux
 
-This script can be used to configure mouse button mappings of a Logitech M720 mouse temporary.
+This script maps the extra buttons of a Logitech M720 mouse to keyboard shortcuts on Linux.
 
-The configuration is done via the HID++ protocol described in these documents:
+The M720 is connected over **Bluetooth** directly to the computer (no Unifying/Logi Bolt receiver is needed). The buttons are configured via the HID++ protocol described in these documents:
 
  * [Logitech HID++2.0 Draft Specification](https://lekensteyn.nl/files/logitech/logitech_hidpp_2.0_specification_draft_2012-06-04.pdf)
  * [special keys and mouse buttons](https://lekensteyn.nl/files/logitech/x1b04_specialkeysmsebuttons.html#divertedButtonsEvent)
 
+The script runs in the background as a `systemd` user service. It diverts the chosen buttons from the mouse firmware to the host and emits the matching key combination through a virtual keyboard (`uinput`).
+
 This script is created for personal use only and may or may not work for your device. Use at your own risk.
+
+# Default Button Mapping
+
+| Button               | CID    | Sends                 | Effect                       |
+|----------------------|--------|-----------------------|------------------------------|
+| Side button (back)   | `0x53` | `Super` + `Page Up`   | Workspace left               |
+| Side button (forward)| `0x56` | `Super` + `Page Down` | Workspace right              |
+| Thumb button         | `0xD0` | `Shift` + `Print`     | Interactive screenshot       |
+
+The mapping is defined in `DIVERTED_BUTTONS` in [`m720_config/__init__.py`](m720_config/__init__.py). The other buttons keep their default behavior.
 
 # How to Use
 
+## Requirements
+
+ * Python 3
+ * [`python-evdev`](https://python-evdev.readthedocs.io/) (`sudo apt install python3-evdev` on Debian/Ubuntu)
+ * Write access to `/dev/uinput` and `/dev/hidraw*` for the logged-in user (provided by the udev rules below)
+
 ## Installation
 
-Clone the repository and install this package with pip:
+1. Clone the repository and install the package:
 
-```
-$ pip install --user -e /path/to/logitech-m720-config
-```
+   ```
+   $ pip install --user -e /path/to/logitech-m720-config
+   ```
 
-This installs `m720-config` to `~/.local/bin`.
+   This installs `m720-config` to `~/.local/bin` and pulls in `evdev`.
 
-### Troubleshooting
+   > Make sure `~/.local/bin` is in your `PATH` variable
 
-On `ubuntu` the above installation might fail due to a different `PYTHONPATH` configuration. You may use the following *workaround* (use with caution, it is a hack!)
+2. Install the udev rules so the logged-in user can access the mouse and `uinput` without root:
 
-```
-$ sudo apt-get install python3-pip
-$ cd path-to-this-repo
-$ PYTHONPATH="./lib" pip3 install --user -e .
-$ pip3 install --user pyudev
-$ ~/.local/bin/m720-config
-```
+   ```
+   $ sudo cp udev/70-m720-config.rules /etc/udev/rules.d/
+   $ sudo udevadm control --reload-rules && sudo udevadm trigger
+   ```
 
-## Run the script
+   The rules match the Bluetooth ID of the M720 (`046D:B015`) and `uinput`.
 
-This script will map `Button 8` on the thumb button by default.
+3. Install the systemd user service so the buttons are configured on login:
 
-Run in a terminal:
+   ```
+   $ mkdir -p ~/.config/systemd/user
+   $ cp systemd/m720-config.service ~/.config/systemd/user/
+   $ systemctl --user daemon-reload
+   $ systemctl --user enable --now m720-config.service
+   ```
+
+   The unit runs `m720_config/__init__.py` from the repository path in `ExecStart`. If you cloned the repository somewhere else, edit that path first.
+
+## Run the script manually
+
+To try it without the service, run in a terminal:
 
 ```
 $ m720-config
 ```
 
-> Make sure `~/.local/bin` is in your `PATH` variable
+The script prints the mouse it found and `LISTENING`, then reports each diverted button press. Stop it with `Ctrl+C`; the buttons are returned to their default behavior on exit.
+
+## Check your configuration
+
+ * View the service log: `journalctl --user -u m720-config.service -f`
 
 ## Create your own configuration
 
-Tweak the source code in `m720_config/__init__.py` to adjust the configuration. Specifically, the remapping is done in [line 156 of `__init__.py`](https://github.com/fin-ger/logitech-m720-config/blob/master/m720_config/__init__.py#L156).
-
-### So, how does it work?
-
-When running `m720-config` you get a `CID INFO` printed to the terminal which looks like this:
-
-```
-### CID INFO ###
-  CID    TID  virtual persist divert reprog fntog hotkey fkey  mouse pos group gmask      rawXY
-0x0050 0x0038 False   False   False  True   False False  False True  0   1     0b00000001 False
-0x0051 0x0039 False   False   False  True   False False  False True  0   1     0b00000001 False
-0x0052 0x003A False   True    True   True   False False  False True  0   2     0b00000011 True 
-0x0053 0x003C False   True    True   True   False False  False True  0   2     0b00000011 True 
-0x0056 0x003E False   True    True   True   False False  False True  0   2     0b00000011 True 
-0x005B 0x003F False   True    True   True   False False  False True  0   2     0b00000011 True 
-0x005D 0x0040 False   True    True   True   False False  False True  0   2     0b00000011 True 
-0x00D0 0x00AD False   True    True   True   False False  False True  0   2     0b00000011 True 
-0x00D7 0x00B4 True    False   True   False  False False  False False 0   3     0b00000000 True 
-```
-
-A `CID` is a control-ID which identifies a mouse button. To remap a button to another button, you first have to get the control-ID of the button you aim to remap (e.g. the thumb button with CID `0xD0`) and the control-ID of the button you aim to imitate (e.g. button 8 with CID `0x53`). To map CID `0xD0` to `0x53` you now have to create a CID reporting.
+Edit `DIVERTED_BUTTONS` in `m720_config/__init__.py` to change which buttons are diverted and which key combination each one sends. Each entry is a list of `ecodes.KEY_*` values pressed together, for example:
 
 ```python
-buttons.set_cid_reporting (0xD0, False, False, True, True, False, False, 0x53)
+DIVERTED_BUTTONS = {
+    0x53: [ecodes.KEY_LEFTMETA, ecodes.KEY_PAGEUP],
+}
 ```
 
-If you just want to remap your mouse buttons, leave the other parameters as is. You can find documentation on what the other parameters are controlling [here](https://lekensteyn.nl/files/logitech/x1b04_specialkeysmsebuttons.html#setCidReporting).
+Restart the service after changing the file:
+
+```
+$ systemctl --user restart m720-config.service
+```
 
 ### Button CID mapping
 
@@ -89,9 +105,12 @@ If you just want to remap your mouse buttons, leave the other parameters as is. 
 | `0xD0` | ![](buttons/thumb.png) |
 | `0xD7` | unknown                |
 
-## Check your configuration
+### How it works
 
-Use `xev | grep button` to monitor your changes to your mouse button mapping.
+1. The script finds the M720 by looking for `M720` in the `hidraw` device entries.
+2. It asks the mouse for the Reprogrammable Controls feature (`0x1B04`) and sets the buttons in `DIVERTED_BUTTONS` to *divert* mode, so the mouse reports presses instead of sending its default action.
+3. Each diverted-button report lists the CIDs currently held down. A CID that was not held before is a new press, and the script sends the mapped key combination through a virtual keyboard named `m720-config`.
+4. On exit (including `SIGTERM` from systemd) the buttons are set back to normal.
 
 # How to Get Gestures On Linux?
 

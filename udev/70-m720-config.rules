@@ -1,0 +1,5 @@
+# Grant the logged-in user access to the Logitech M720 (Bluetooth) and to uinput,
+# so m720-config does not depend on the rules shipped with solaar.
+# uaccess: modern ACL-enabled udev, gives access to the seated user only.
+KERNEL=="uinput", SUBSYSTEM=="misc", TAG+="uaccess", OPTIONS+="static_node=uinput"
+SUBSYSTEM=="hidraw", KERNELS=="0005:046D:B015.*", TAG+="uaccess"

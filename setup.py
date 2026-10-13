@@ -46,7 +46,7 @@ setup (
     ],
     keywords = "config logitech m720 hid++",
     packages = find_packages (),
-    install_requires = ["solaar"],
+    install_requires = ["evdev"],
     extras_require = {},
     package_data = {
         "m720_config": [],
